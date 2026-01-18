@@ -13,6 +13,21 @@ export interface ChartDataPoint {
   uv: number;
 }
 
+export type PaySchedule = 'weekly' | 'bi_weekly' | 'semi_monthly' | 'monthly';
+
+export type PageType = 'home' | 'companies' | 'company-details' | 'transactions';
+
+export interface IncomeAttachment {
+  id: string;
+  user_id: string;
+  entry_id: string;
+  file_name: string;
+  mime_type: string;
+  file_size: number;
+  r2_key: string;
+  uploaded_at: string;
+}
+
 export interface Company {
   id: string;
   user_id: string;
@@ -20,7 +35,8 @@ export interface Company {
   work_start_date?: string;
   work_end_date?: string;
   employment_type?: string;
-  pay_frequency?: string;
+  pay_frequency?: PaySchedule;
+  hourly_wage?: number;
   default_currency?: string;
   is_active?: boolean;
 }

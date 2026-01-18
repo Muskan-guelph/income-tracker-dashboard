@@ -6,8 +6,11 @@ import BreakdownCard from './components/BreakdownCard';
 import AnalyticsCard from './components/AnalyticsCard';
 import Auth from './components/Auth';
 import AddCompanyModal from './components/AddCompanyModal';
+import CompaniesPage from './components/CompaniesPage';
+import CompanyDetailsPage from './components/CompanyDetailsPage';
+import TransactionsPage from './components/TransactionsPage';
 import { supabase } from './lib/supabaseClient';
-import { BreakdownData, ChartDataPoint, IncomeEntry, Company } from './types';
+import { BreakdownData, ChartDataPoint, IncomeEntry, Company, PageType } from './types';
 
 // Utility to calculate breakdown based on gross income
 const calculateBreakdown = (gross: number): BreakdownData => {
@@ -22,7 +25,7 @@ const calculateBreakdown = (gross: number): BreakdownData => {
   const federalTax = Number((gross * fedTaxRate).toFixed(2));
   const provincialTax = Number((gross * provTaxRate).toFixed(2));
   const vacationPay = Number((gross * vacationRate).toFixed(2));
-  
+
   // Vacation Pay is calculated for classification but NOT deducted from Net Income
   const netIncome = Number((gross - cpp - ei - federalTax - provincialTax).toFixed(2));
 
@@ -41,21 +44,26 @@ const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [loading, setLoading] = useState(true);
-  
+
+  // Page Navigation State
+  const [currentPage, setCurrentPage] = useState<PageType>('home');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+
   // Income Entry State
   const [grossIncome, setGrossIncome] = useState<number>(20729.01);
   const [breakdown, setBreakdown] = useState<BreakdownData>(calculateBreakdown(20729.01));
-  
+
   // New Fields State
   const [periodStart, setPeriodStart] = useState<string>('');
   const [periodEnd, setPeriodEnd] = useState<string>('');
   const [payDate, setPayDate] = useState<string>('');
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  
+  const [selectedCompanyIdForEntry, setSelectedCompanyIdForEntry] = useState<string | null>(null);
+
   // Data State
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  
+  const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>([]);
+
   // UI State
   const [isAddCompanyModalOpen, setIsAddCompanyModalOpen] = useState(false);
 
@@ -93,11 +101,14 @@ const App: React.FC = () => {
       if (error) throw error;
 
       if (data) {
+        // Store raw entries for other pages
+        setIncomeEntries(data as IncomeEntry[]);
+
         // Aggregate data by month for the chart
         const aggregated = data.reduce((acc: any, curr: IncomeEntry) => {
           const date = new Date(curr.received_date);
           const month = date.toLocaleString('default', { month: 'short' });
-          
+
           if (!acc[month]) {
             acc[month] = 0;
           }
@@ -109,7 +120,7 @@ const App: React.FC = () => {
           name: key,
           uv: aggregated[key]
         }));
-        
+
         setChartData(points);
       }
     } catch (error) {
@@ -118,20 +129,19 @@ const App: React.FC = () => {
   };
 
   const fetchCompanies = async () => {
-      if (!session) return;
-      try {
-          const { data, error } = await supabase
-            .from('companies')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .eq('is_active', true)
-            .order('work_start_date', { ascending: false });
-        
-        if (error) throw error;
-        setCompanies(data || []);
-      } catch (error) {
-          console.error('Error fetching companies:', error);
-      }
+    if (!session) return;
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('work_start_date', { ascending: false });
+
+      if (error) throw error;
+      setCompanies(data || []);
+    } catch (error) {
+      console.error('Error fetching companies:', error);
+    }
   };
 
   // Update breakdown when gross income changes (auto-calculation)
@@ -157,7 +167,7 @@ const App: React.FC = () => {
     setPeriodStart('');
     setPeriodEnd('');
     setPayDate('');
-    setSelectedCompanyId(null);
+    setSelectedCompanyIdForEntry(null);
   };
 
   const handleAddIncome = async () => {
@@ -166,12 +176,12 @@ const App: React.FC = () => {
       alert("Please enter a valid income amount");
       return;
     }
-    
-    if (!selectedCompanyId) {
-        alert("Please select a company");
-        return;
+
+    if (!selectedCompanyIdForEntry) {
+      alert("Please select a company");
+      return;
     }
-    
+
     // Default pay date to today if not set
     const finalPayDate = payDate || new Date().toISOString().split('T')[0];
 
@@ -181,7 +191,7 @@ const App: React.FC = () => {
         received_date: finalPayDate,
         period_start: periodStart || undefined,
         period_end: periodEnd || undefined,
-        company_id: selectedCompanyId,
+        company_id: selectedCompanyIdForEntry,
         source: 'Manual Entry',
         amount_type: 'GROSS',
         currency: 'CAD',
@@ -222,7 +232,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen w-full transition-colors duration-500 overflow-hidden relative ${isDarkMode ? 'bg-[#05050a] text-white selection:bg-purple-500/30' : 'bg-[#f8fafc] text-slate-800 selection:bg-purple-500/20'}`}>
-      
+
       {/* Background Ambience */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         {isDarkMode ? (
@@ -241,76 +251,121 @@ const App: React.FC = () => {
 
       {!session ? (
         <div className="w-full h-full flex items-center justify-center relative z-20 p-4">
-           <Auth isDarkMode={isDarkMode} />
+          <Auth isDarkMode={isDarkMode} />
         </div>
       ) : (
         <>
           {/* Sidebar */}
-          <Sidebar isDarkMode={isDarkMode} />
+          <Sidebar
+            isDarkMode={isDarkMode}
+            currentPage={currentPage}
+            onNavigate={(page) => {
+              setCurrentPage(page);
+              if (page !== 'company-details') {
+                setSelectedCompanyId(null);
+              }
+            }}
+          />
 
           {/* Main Content */}
           <div className="flex-1 flex flex-col h-full relative z-10 overflow-y-auto">
             <Header isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />
-            
-            <main className="px-8 pb-8 pt-4 space-y-6 max-w-[1800px] mx-auto w-full">
-              {/* Breadcrumbs & Title & Logout */}
-              <div className="space-y-1 mb-6 flex justify-between items-end">
-                <div>
+
+            {/* Conditional Page Rendering */}
+            {currentPage === 'home' && (
+              <main className="px-8 pb-5 pt-4 space-y-6 max-w-[1800px] mx-auto w-full">
+                {/* Breadcrumbs & Title & Logout */}
+                <div className="space-y-1 mb-6 flex justify-between items-end">
+                  <div>
                     <div className={`flex items-center text-xs font-medium space-x-2 ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                    <span className={`cursor-pointer transition-colors ${isDarkMode ? 'hover:text-gray-300' : 'hover:text-slate-800'}`}>Home Page</span>
-                    <span>/</span>
-                    <span className={isDarkMode ? 'text-gray-400' : 'text-slate-400'}>Income Tracker</span>
+                      <span className={`cursor-pointer transition-colors ${isDarkMode ? 'hover:text-gray-300' : 'hover:text-slate-800'}`}>Home Page</span>
+                      <span>/</span>
+                      <span className={isDarkMode ? 'text-gray-400' : 'text-slate-400'}>Income Tracker</span>
                     </div>
                     <h1 className={`text-3xl font-light tracking-wide ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Income Tracker</h1>
-                </div>
-                <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 transition-colors">Sign Out</button>
-              </div>
-
-              {/* Grid Layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full pb-6">
-                
-                {/* Left Panel: Enter Income */}
-                <div className="lg:col-span-3">
-                  <EnterIncomeCard 
-                    grossIncome={grossIncome} 
-                    setGrossIncome={setGrossIncome}
-                    breakdown={breakdown}
-                    onBreakdownChange={handleBreakdownChange}
-                    onReset={handleReset}
-                    onAdd={handleAddIncome}
-                    isDarkMode={isDarkMode}
-                    // New Props
-                    periodStart={periodStart}
-                    setPeriodStart={setPeriodStart}
-                    periodEnd={periodEnd}
-                    setPeriodEnd={setPeriodEnd}
-                    payDate={payDate}
-                    setPayDate={setPayDate}
-                    selectedCompanyId={selectedCompanyId}
-                    setSelectedCompanyId={setSelectedCompanyId}
-                    companies={companies}
-                    onAddCompany={() => setIsAddCompanyModalOpen(true)}
-                  />
+                  </div>
+                  <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 transition-colors">Sign Out</button>
                 </div>
 
-                {/* Middle Panel: Breakdown Chart */}
-                <div className="lg:col-span-4 relative group">
-                  <div className={`absolute inset-0 rounded-3xl blur-2xl transition-colors duration-700 -z-10 ${isDarkMode ? 'bg-blue-600/5 group-hover:bg-blue-600/10' : 'bg-blue-200/20 group-hover:bg-blue-200/30'}`}></div>
-                  <BreakdownCard breakdown={breakdown} isDarkMode={isDarkMode} />
-                </div>
+                {/* Grid Layout */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-                {/* Right Panel: Analytics Chart */}
-                <div className="lg:col-span-5">
-                  <AnalyticsCard hasData={chartData.length > 0} isDarkMode={isDarkMode} data={chartData} />
-                </div>
+                  {/* Left Panel: Enter Income */}
+                  <div className="lg:col-span-3">
+                    <EnterIncomeCard
+                      grossIncome={grossIncome}
+                      setGrossIncome={setGrossIncome}
+                      breakdown={breakdown}
+                      onBreakdownChange={handleBreakdownChange}
+                      onReset={handleReset}
+                      onAdd={handleAddIncome}
+                      isDarkMode={isDarkMode}
+                      // New Props
+                      periodStart={periodStart}
+                      setPeriodStart={setPeriodStart}
+                      periodEnd={periodEnd}
+                      setPeriodEnd={setPeriodEnd}
+                      payDate={payDate}
+                      setPayDate={setPayDate}
+                      selectedCompanyId={selectedCompanyIdForEntry}
+                      setSelectedCompanyId={setSelectedCompanyIdForEntry}
+                      companies={companies}
+                      onAddCompany={() => setIsAddCompanyModalOpen(true)}
+                    />
+                  </div>
 
-              </div>
-            </main>
+                  {/* Middle Panel: Breakdown Chart */}
+                  <div className="lg:col-span-4 relative group">
+                    <div className={`absolute inset-0 rounded-3xl blur-2xl transition-colors duration-700 -z-10 ${isDarkMode ? 'bg-blue-600/5 group-hover:bg-blue-600/10' : 'bg-blue-200/20 group-hover:bg-blue-200/30'}`}></div>
+                    <BreakdownCard breakdown={breakdown} isDarkMode={isDarkMode} />
+                  </div>
+
+                  {/* Right Panel: Analytics Chart */}
+                  <div className="lg:col-span-5">
+                    <AnalyticsCard hasData={chartData.length > 0} isDarkMode={isDarkMode} data={chartData} />
+                  </div>
+
+                </div>
+              </main>
+            )}
+
+            {currentPage === 'companies' && (
+              <CompaniesPage
+                isDarkMode={isDarkMode}
+                companies={companies}
+                incomeEntries={incomeEntries}
+                onCompanyClick={(companyId) => {
+                  setSelectedCompanyId(companyId);
+                  setCurrentPage('company-details');
+                }}
+                onRefreshCompanies={fetchCompanies}
+                session={session}
+              />
+            )}
+
+            {currentPage === 'company-details' && selectedCompanyId && (
+              <CompanyDetailsPage
+                isDarkMode={isDarkMode}
+                company={companies.find(c => c.id === selectedCompanyId)!}
+                incomeEntries={incomeEntries}
+                onBack={() => setCurrentPage('companies')}
+              />
+            )}
+
+            {currentPage === 'transactions' && (
+              <TransactionsPage
+                isDarkMode={isDarkMode}
+                incomeEntries={incomeEntries}
+                companies={companies}
+                onRefresh={fetchIncomeData}
+                session={session}
+              />
+            )}
           </div>
-          
+
           {/* Modals */}
-          <AddCompanyModal 
-            isOpen={isAddCompanyModalOpen} 
+          <AddCompanyModal
+            isOpen={isAddCompanyModalOpen}
             onClose={() => setIsAddCompanyModalOpen(false)}
             isDarkMode={isDarkMode}
             userId={session.user.id}
