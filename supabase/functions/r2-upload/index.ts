@@ -70,12 +70,25 @@ async function signRequest(
     // Calculate payload hash
     const payloadHash = body ? await sha256(body) : await sha256(new Uint8Array(0));
 
-    // Canonical headers
-    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-    const canonicalHeaders =
-        `host:${host}\n` +
-        `x-amz-content-sha256:${payloadHash}\n` +
-        `x-amz-date:${amzDate}\n`;
+    // Build canonical headers - include content-type if present
+    const contentType = headers["Content-Type"] || "";
+    let signedHeaders: string;
+    let canonicalHeaders: string;
+
+    if (contentType) {
+        signedHeaders = "content-type;host;x-amz-content-sha256;x-amz-date";
+        canonicalHeaders =
+            `content-type:${contentType}\n` +
+            `host:${host}\n` +
+            `x-amz-content-sha256:${payloadHash}\n` +
+            `x-amz-date:${amzDate}\n`;
+    } else {
+        signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+        canonicalHeaders =
+            `host:${host}\n` +
+            `x-amz-content-sha256:${payloadHash}\n` +
+            `x-amz-date:${amzDate}\n`;
+    }
 
     // Canonical request
     const canonicalRequest = [
@@ -104,13 +117,18 @@ async function signRequest(
     // Authorization header
     const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-    return {
-        ...headers,
+    const resultHeaders: Record<string, string> = {
         "Host": host,
         "x-amz-date": amzDate,
         "x-amz-content-sha256": payloadHash,
         "Authorization": authorization,
     };
+
+    if (contentType) {
+        resultHeaders["Content-Type"] = contentType;
+    }
+
+    return resultHeaders;
 }
 
 serve(async (req) => {
@@ -143,9 +161,15 @@ serve(async (req) => {
                 throw new Error("Missing file or entryId");
             }
 
+            // Sanitize filename - remove special chars and spaces
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            
             // Generate unique key for the file
-            const key = `attachments/${entryId}/${Date.now()}-${file.name}`;
-            const url = `${endpoint}/${R2_BUCKET}/${key}`;
+            const key = `attachments/${entryId}/${Date.now()}-${safeFileName}`;
+            const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+            const url = `${endpoint}/${R2_BUCKET}/${encodedKey}`;
+
+            console.log("Uploading to R2:", { bucket: R2_BUCKET, key, url });
 
             // Get file as Uint8Array
             const fileBuffer = new Uint8Array(await file.arrayBuffer());
@@ -154,11 +178,13 @@ serve(async (req) => {
             const signedHeaders = await signRequest(
                 "PUT",
                 url,
-                { "Content-Type": file.type },
+                { "Content-Type": file.type || "application/octet-stream" },
                 fileBuffer,
                 R2_ACCESS_KEY_ID,
                 R2_SECRET_ACCESS_KEY
             );
+
+            console.log("Signed headers:", Object.keys(signedHeaders));
 
             // Upload to R2
             const uploadResponse = await fetch(url, {
@@ -169,7 +195,7 @@ serve(async (req) => {
 
             if (!uploadResponse.ok) {
                 const errorText = await uploadResponse.text();
-                console.error("R2 upload error:", errorText);
+                console.error("R2 upload error:", uploadResponse.status, errorText);
                 throw new Error(`R2 upload failed: ${uploadResponse.status}`);
             }
 

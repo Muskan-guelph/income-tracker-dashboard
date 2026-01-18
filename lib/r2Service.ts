@@ -4,6 +4,7 @@
 import { supabase } from './supabaseClient';
 
 const SUPABASE_URL = 'https://chwxexdwzxpolmhmbfco.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNod3hleGR3enhwb2xtaG1iZmNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzNTk3MjQsImV4cCI6MjA4MzkzNTcyNH0.XF784Lsg8uojkreMVWcROd3V3G8Vvv3ockBL4peBcrE';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/r2-upload`;
 
 /**
@@ -35,6 +36,7 @@ export async function uploadToR2(
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`,
+            'apikey': SUPABASE_ANON_KEY,
         },
         body: formData,
     });
@@ -64,6 +66,7 @@ export async function getDownloadUrl(r2Key: string): Promise<string> {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -91,6 +94,7 @@ export async function deleteR2File(r2Key: string): Promise<boolean> {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
