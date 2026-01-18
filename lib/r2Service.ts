@@ -1,68 +1,111 @@
-// R2 Attachment Service using Supabase Storage instead of R2
-// This eliminates all R2 signing complexity
+// R2 Attachment Service using Supabase Edge Function
+// Uploads files to Cloudflare R2 via a signed edge function proxy
 
 import { supabase } from './supabaseClient';
 
-const BUCKET_NAME = 'income-attachments';
+const SUPABASE_URL = 'https://chwxexdwzxpolmhmbfco.supabase.co';
+const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/r2-upload`;
 
 /**
- * Upload a file to Supabase Storage
+ * Get the current session token for authenticated requests
+ */
+async function getAuthToken(): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+        throw new Error('Not authenticated');
+    }
+    return session.access_token;
+}
+
+/**
+ * Upload a file to R2 via Edge Function
  */
 export async function uploadToR2(
     entryId: string,
     file: File
 ): Promise<{ key: string; fileName: string; fileSize: number; mimeType: string }> {
-    // Generate unique key for the file
-    const key = `attachments/${entryId}/${Date.now()}-${file.name}`;
+    const token = await getAuthToken();
 
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(key, file, {
-            cacheControl: '3600',
-            upsert: false,
-        });
+    // Create form data for upload
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('entryId', entryId);
 
-    if (error) {
-        throw new Error(error.message || 'Failed to upload file');
+    const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('R2 upload error response:', errorData);
+        throw new Error(errorData.error || `Upload failed: ${response.status}`);
     }
 
+    const data = await response.json();
     return {
-        key: data.path,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
+        key: data.key,
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        mimeType: data.mimeType,
     };
 }
 
 /**
- * Get a signed download URL for viewing/downloading
+ * Get a signed download URL for viewing/downloading from R2
  */
 export async function getDownloadUrl(r2Key: string): Promise<string> {
-    const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .createSignedUrl(r2Key, 3600); // 1 hour expiry
+    const token = await getAuthToken();
 
-    if (error) {
-        throw new Error(error.message || 'Failed to get download URL');
+    const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            action: 'get-download-url',
+            r2Key,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to get download URL');
     }
 
-    return data.signedUrl;
+    const data = await response.json();
+    return data.downloadUrl;
 }
 
 /**
- * Delete a file from Supabase Storage
+ * Delete a file from R2 via Edge Function
  */
 export async function deleteR2File(r2Key: string): Promise<boolean> {
-    const { error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .remove([r2Key]);
+    const token = await getAuthToken();
 
-    if (error) {
-        throw new Error(error.message || 'Failed to delete file');
+    const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            action: 'delete',
+            r2Key,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete file');
     }
 
-    return true;
+    const data = await response.json();
+    return data.success;
 }
 
 /**
