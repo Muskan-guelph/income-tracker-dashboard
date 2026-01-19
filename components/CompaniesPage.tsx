@@ -83,11 +83,30 @@ const CompaniesPage: React.FC<CompaniesPageProps> = ({
         .sort((a, b) => (companyNetIncomes[b.id] || 0) - (companyNetIncomes[a.id] || 0))
         .slice(0, 3);
 
-    const handleDelete = async (companyId: string) => {
+    const handleEndCompany = async (companyId: string) => {
+        try {
+            // Set end date to today and mark as inactive
+            const today = new Date().toISOString().split('T')[0];
+            const { error } = await supabase
+                .from('companies')
+                .update({ is_active: false, work_end_date: today })
+                .eq('id', companyId);
+
+            if (error) throw error;
+
+            onRefreshCompanies();
+            setDeleteConfirmId(null);
+        } catch (error) {
+            console.error('Error ending company:', error);
+            alert('Failed to end company. Please try again.');
+        }
+    };
+
+    const handlePermanentDelete = async (companyId: string) => {
         try {
             const { error } = await supabase
                 .from('companies')
-                .update({ is_active: false })
+                .delete()
                 .eq('id', companyId);
 
             if (error) throw error;
@@ -384,24 +403,31 @@ const CompaniesPage: React.FC<CompaniesPageProps> = ({
                     <div className={`relative w-full max-w-sm rounded-[24px] p-6 shadow-2xl ${isDarkMode ? 'bg-[#181824] border border-white/10' : 'bg-white border border-slate-200'
                         }`}>
                         <h3 className={`text-lg font-medium mb-4 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
-                            End Company?
+                            What would you like to do?
                         </h3>
                         <p className={`text-sm mb-6 ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>
-                            This will mark the company as ended. You can still view historical data.
+                            Choose to end the company (keeps historical data) or delete it permanently.
                         </p>
-                        <div className="flex gap-3">
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={() => handleEndCompany(deleteConfirmId)}
+                                className={`w-full py-2.5 rounded-xl border font-medium transition-all ${isDarkMode ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10' : 'border-amber-300 text-amber-600 hover:bg-amber-50'
+                                    }`}
+                            >
+                                End Company
+                            </button>
+                            <button
+                                onClick={() => handlePermanentDelete(deleteConfirmId)}
+                                className="w-full py-2.5 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 transition-all"
+                            >
+                                Delete Permanently
+                            </button>
                             <button
                                 onClick={() => setDeleteConfirmId(null)}
-                                className={`flex-1 py-2.5 rounded-xl border font-medium transition-all ${isDarkMode ? 'border-white/10 text-gray-300 hover:bg-white/5' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                className={`w-full py-2.5 rounded-xl border font-medium transition-all ${isDarkMode ? 'border-white/10 text-gray-300 hover:bg-white/5' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                                     }`}
                             >
                                 Cancel
-                            </button>
-                            <button
-                                onClick={() => handleDelete(deleteConfirmId)}
-                                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 transition-all"
-                            >
-                                End Company
                             </button>
                         </div>
                     </div>
@@ -436,13 +462,19 @@ const CompanyModal: React.FC<CompanyModalProps> = ({ isOpen, onClose, isDarkMode
         setLoading(true);
 
         try {
+            // Determine if company is active: no end date OR end date is in the future
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const endDateObj = endDate ? new Date(endDate) : null;
+            const isActive = !endDateObj || endDateObj >= today;
+
             const data = {
                 name,
                 hourly_wage: hourlyWage ? parseFloat(hourlyWage) : null,
                 pay_frequency: paySchedule,
                 work_start_date: startDate || new Date().toISOString().split('T')[0],
                 work_end_date: endDate || null,
-                is_active: !endDate,
+                is_active: isActive,
                 ...(editCompany ? {} : { user_id: userId })
             };
 

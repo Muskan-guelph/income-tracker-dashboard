@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     Receipt, Plus, Search, ChevronDown, ChevronRight, Edit2, Trash2,
     Eye, Paperclip, Calendar, Building2, X, Upload, FileText,
-    ArrowUpDown, Filter, Download
+    ArrowUpDown, Filter, Download, DollarSign
 } from 'lucide-react';
 import { Company, IncomeEntry, IncomeAttachment } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -30,8 +30,13 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [dateRange, setDateRange] = useState<DateRangeType>('last_6_months');
     const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-    const [hasAttachmentFilter, setHasAttachmentFilter] = useState<boolean | null>(null);
+    const [hasAttachmentFilter, setHasAttachmentFilter] = useState<'all' | 'yes' | 'no'>('all');
     const [sortBy, setSortBy] = useState<SortType>('newest');
+    const [amountMin, setAmountMin] = useState<string>('');
+    const [amountMax, setAmountMax] = useState<string>('');
+
+    // Track attachment counts per entry
+    const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
 
     const [selectedTransaction, setSelectedTransaction] = useState<IncomeEntry | null>(null);
     const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false);
@@ -75,6 +80,28 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
             });
         }
 
+        // Amount range filter
+        if (amountMin) {
+            const min = parseFloat(amountMin);
+            if (!isNaN(min)) {
+                entries = entries.filter(e => (e.net_amount || 0) >= min);
+            }
+        }
+        if (amountMax) {
+            const max = parseFloat(amountMax);
+            if (!isNaN(max)) {
+                entries = entries.filter(e => (e.net_amount || 0) <= max);
+            }
+        }
+
+        // Has attachment filter
+        if (hasAttachmentFilter !== 'all') {
+            entries = entries.filter(e => {
+                const count = attachmentCounts[e.id || ''] || 0;
+                return hasAttachmentFilter === 'yes' ? count > 0 : count === 0;
+            });
+        }
+
         // Sort
         if (sortBy === 'newest') {
             entries.sort((a, b) => new Date(b.received_date).getTime() - new Date(a.received_date).getTime());
@@ -86,7 +113,7 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
         }
 
         return entries;
-    }, [incomeEntries, dateRange, selectedCompanyId, searchQuery, sortBy, companies]);
+    }, [incomeEntries, dateRange, selectedCompanyId, searchQuery, sortBy, companies, amountMin, amountMax, hasAttachmentFilter, attachmentCounts]);
 
     // Calculate totals
     const totals = useMemo(() => {
@@ -243,6 +270,46 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
+                    </div>
+
+                    {/* Has Attachment Filter */}
+                    <div className={`flex items-center px-4 py-2 rounded-xl border ${isDarkMode
+                        ? 'bg-[#161621] border-white/[0.08]'
+                        : 'bg-slate-50 border-slate-200'
+                        }`}>
+                        <Paperclip size={14} className={`mr-2 ${isDarkMode ? 'text-gray-500' : 'text-slate-400'}`} />
+                        <select
+                            value={hasAttachmentFilter}
+                            onChange={(e) => setHasAttachmentFilter(e.target.value as 'all' | 'yes' | 'no')}
+                            className={`bg-transparent border-none outline-none text-sm cursor-pointer ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}
+                        >
+                            <option value="all">All</option>
+                            <option value="yes">Has Attachment</option>
+                            <option value="no">No Attachment</option>
+                        </select>
+                    </div>
+
+                    {/* Amount Range */}
+                    <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${isDarkMode
+                        ? 'bg-[#161621] border-white/[0.08]'
+                        : 'bg-slate-50 border-slate-200'
+                        }`}>
+                        <DollarSign size={14} className={isDarkMode ? 'text-gray-500' : 'text-slate-400'} />
+                        <input
+                            type="number"
+                            value={amountMin}
+                            onChange={(e) => setAmountMin(e.target.value)}
+                            placeholder="Min"
+                            className={`w-16 bg-transparent border-none outline-none text-sm ${isDarkMode ? 'text-white placeholder-gray-600' : 'text-slate-800 placeholder-slate-400'}`}
+                        />
+                        <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-400'}`}>–</span>
+                        <input
+                            type="number"
+                            value={amountMax}
+                            onChange={(e) => setAmountMax(e.target.value)}
+                            placeholder="Max"
+                            className={`w-16 bg-transparent border-none outline-none text-sm ${isDarkMode ? 'text-white placeholder-gray-600' : 'text-slate-800 placeholder-slate-400'}`}
+                        />
                     </div>
 
                     {/* Sort */}

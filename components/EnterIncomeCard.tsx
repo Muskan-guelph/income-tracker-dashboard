@@ -174,7 +174,7 @@ const EnterIncomeCard: React.FC<EnterIncomeCardProps> = ({
                 </div>
 
                 {/* --- NEW SECTION: PAY DATE & COMPANY --- */}
-                <div className="mb-5 relative z-10 grid grid-cols-2 gap-3">
+                <div className="mb-5 relative z-30 grid grid-cols-2 gap-3">
                     {/* Pay Date */}
                     <div className="relative">
                         <div className={`flex items-center border rounded-2xl px-3 py-2 relative h-full ${isDarkMode

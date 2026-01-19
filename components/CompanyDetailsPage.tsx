@@ -87,6 +87,87 @@ const CompanyDetailsPage: React.FC<CompanyDetailsPageProps> = ({
         return payments;
     }, [incomeEntries, company.id]);
 
+    // Calculate predicted future payment dates based on pay schedule
+    const predictedPaymentDates = useMemo(() => {
+        const predictions: Set<string> = new Set();
+
+        if (!company.pay_frequency) return predictions;
+
+        // Helper to format date as YYYY-MM-DD in local timezone
+        const formatLocalDate = (date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // Get all payment dates for this company, sorted descending
+        const companyEntries = incomeEntries
+            .filter(e => e.company_id === company.id)
+            .sort((a, b) => new Date(b.received_date).getTime() - new Date(a.received_date).getTime());
+
+        if (companyEntries.length === 0) return predictions;
+
+        // Use the most recent payment as the reference
+        const lastPaymentDateStr = companyEntries[0].received_date;
+        // Parse the date parts to avoid timezone issues
+        const [year, month, day] = lastPaymentDateStr.split('-').map(Number);
+        let nextDate = new Date(year, month - 1, day);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Calculate interval in days based on pay frequency
+        let intervalDays: number;
+        switch (company.pay_frequency) {
+            case 'weekly':
+                intervalDays = 7;
+                break;
+            case 'bi_weekly':
+                intervalDays = 14;
+                break;
+            case 'semi_monthly':
+                intervalDays = 15; // approximate
+                break;
+            case 'monthly':
+                intervalDays = 30; // approximate
+                break;
+            default:
+                return predictions;
+        }
+
+        // Generate predicted dates for the next 6 months
+        const sixMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 6, today.getDate());
+
+        while (nextDate <= sixMonthsFromNow) {
+            // Add interval to get next date
+            if (company.pay_frequency === 'semi_monthly') {
+                // Semi-monthly: 1st and 15th, or 15th and last day
+                const dayOfMonth = nextDate.getDate();
+                if (dayOfMonth < 15) {
+                    nextDate.setDate(15);
+                } else {
+                    nextDate.setMonth(nextDate.getMonth() + 1);
+                    nextDate.setDate(1);
+                }
+            } else if (company.pay_frequency === 'monthly') {
+                // Monthly: same day each month
+                nextDate.setMonth(nextDate.getMonth() + 1);
+            } else {
+                // Weekly / Bi-weekly: add fixed days
+                nextDate.setDate(nextDate.getDate() + intervalDays);
+            }
+
+            // Only add future dates that don't already have payments
+            const dateStr = formatLocalDate(nextDate);
+            if (nextDate > today && !paymentsByDate[dateStr]) {
+                predictions.add(dateStr);
+            }
+        }
+
+        return predictions;
+    }, [incomeEntries, company.id, company.pay_frequency, paymentsByDate]);
+
     // Calendar helpers
     const getDaysInMonth = (date: Date) => {
         const year = date.getFullYear();
@@ -445,6 +526,7 @@ const CompanyDetailsPage: React.FC<CompanyDetailsPageProps> = ({
 
                         const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                         const hasPayments = paymentsByDate[dateStr];
+                        const isPredicted = predictedPaymentDates.has(dateStr);
                         const isPast = new Date(dateStr) < today;
                         const isToday = dateStr === today.toISOString().split('T')[0];
 
@@ -452,26 +534,48 @@ const CompanyDetailsPage: React.FC<CompanyDetailsPageProps> = ({
                             <div
                                 key={day}
                                 onClick={() => hasPayments && setSelectedDate(dateStr)}
-                                className={`h-12 flex flex-col items-center justify-center rounded-lg transition-all cursor-pointer ${isToday
-                                    ? isDarkMode ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-purple-100 border border-purple-300'
-                                    : hasPayments
-                                        ? isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
-                                        : ''
+                                className={`h-12 flex flex-col items-center justify-center rounded-lg transition-all ${hasPayments ? 'cursor-pointer' : isPredicted ? 'cursor-default' : 'cursor-default'
+                                    } ${isToday
+                                        ? isDarkMode ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-purple-100 border border-purple-300'
+                                        : hasPayments
+                                            ? isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
+                                            : isPredicted
+                                                ? isDarkMode ? 'bg-cyan-500/5' : 'bg-cyan-50'
+                                                : ''
                                     }`}
                             >
                                 <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}>
                                     {day}
                                 </span>
+                                {/* Actual payment indicator - purple solid */}
                                 {hasPayments && (
                                     <div className={`w-1.5 h-1.5 rounded-full mt-1 ${isPast
                                         ? 'bg-purple-400/50'
                                         : 'bg-purple-500 shadow-[0_0_6px_#a855f7]'
                                         }`} />
                                 )}
+                                {/* Predicted payment indicator - cyan dashed ring */}
+                                {!hasPayments && isPredicted && (
+                                    <div className="w-1.5 h-1.5 rounded-full mt-1 bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
+                                )}
                             </div>
                         );
                     })}
                 </div>
+
+                {/* Legend */}
+                {predictedPaymentDates.size > 0 && (
+                    <div className={`mt-4 pt-4 border-t flex items-center gap-6 text-xs ${isDarkMode ? 'border-white/[0.06] text-gray-400' : 'border-slate-200 text-slate-500'}`}>
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-purple-500" />
+                            <span>Actual Payment</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                            <span>Predicted Payment</span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Payment Details Modal */}

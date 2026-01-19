@@ -1,17 +1,90 @@
-import React from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ChevronDown, BarChart3 } from 'lucide-react';
+import { ChevronDown, BarChart3, Check } from 'lucide-react';
 import { ChartDataPoint } from '../types';
+
+export type TimeRange = '3m' | '6m' | '12m' | 'ytd' | 'all';
+
+export const timeRangeOptions: { value: TimeRange; label: string }[] = [
+    { value: '3m', label: 'Last 3 Months' },
+    { value: '6m', label: 'Last 6 Months' },
+    { value: '12m', label: 'Last 12 Months' },
+    { value: 'ytd', label: 'Year to Date' },
+    { value: 'all', label: 'All Time' },
+];
+
+// Month order for filtering
+const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 interface AnalyticsCardProps {
     hasData?: boolean;
     isDarkMode: boolean;
     data?: ChartDataPoint[];
+    selectedRange: TimeRange;
+    onRangeChange: (range: TimeRange) => void;
 }
 
-const AnalyticsCard: React.FC<AnalyticsCardProps> = ({ hasData = false, isDarkMode, data = [] }) => {
-    // Safe total calculation
-    const totalValue = data.length > 0 ? data[data.length - 1].uv : 0;
+const AnalyticsCard: React.FC<AnalyticsCardProps> = ({ hasData = false, isDarkMode, data = [], selectedRange, onRangeChange }) => {
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const selectedLabel = timeRangeOptions.find(opt => opt.value === selectedRange)?.label || 'Last 6 Months';
+
+    // Filter data based on selected time range
+    const filteredData = useMemo(() => {
+        if (selectedRange === 'all' || data.length === 0) {
+            return data;
+        }
+
+        const now = new Date();
+        const currentMonth = now.getMonth(); // 0-11
+        const currentYear = now.getFullYear();
+
+        let monthsToShow: number;
+        let startMonth: number;
+
+        switch (selectedRange) {
+            case '3m':
+                monthsToShow = 3;
+                break;
+            case '6m':
+                monthsToShow = 6;
+                break;
+            case '12m':
+                monthsToShow = 12;
+                break;
+            case 'ytd':
+                // From January to current month
+                monthsToShow = currentMonth + 1;
+                break;
+            default:
+                monthsToShow = 6;
+        }
+
+        // Get the months to include
+        const validMonths: string[] = [];
+        for (let i = 0; i < monthsToShow; i++) {
+            const monthIndex = (currentMonth - i + 12) % 12;
+            validMonths.push(monthOrder[monthIndex]);
+        }
+
+        // Filter data to only include valid months
+        return data.filter(point => validMonths.includes(point.name));
+    }, [data, selectedRange]);
+
+    // Safe total calculation using filtered data
+    const totalValue = filteredData.reduce((sum, point) => sum + point.uv, 0);
 
     // Format total as currency
     const formattedTotal = totalValue.toLocaleString('en-US', {
@@ -27,7 +100,7 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({ hasData = false, isDarkMo
             }`}>
 
             {/* Header */}
-            <div className="flex justify-between items-start mb-10 relative z-10">
+            <div className="flex justify-between items-start mb-10 relative z-20">
                 <div>
                     <h2 className={`text-lg font-light tracking-wide ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>Income Analytics</h2>
                     <div className={`text-4xl font-light mt-3 tracking-tight transition-all duration-500 ${hasData ? (isDarkMode ? 'text-white' : 'text-slate-900') : (isDarkMode ? 'text-gray-600' : 'text-slate-300')}`}>
@@ -36,23 +109,53 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({ hasData = false, isDarkMo
                 </div>
 
                 {hasData && (
-                    <div className={`flex items-center space-x-3 px-4 py-2 rounded-xl border cursor-pointer transition-all shadow-lg ${isDarkMode
-                        ? 'bg-[#181824] border-white/[0.06] hover:bg-[#20202e] hover:border-white/10'
-                        : 'bg-white border-slate-200 hover:bg-slate-50 hover:shadow-md'
-                        }`}>
-                        <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>Last 6 Months</span>
-                        <ChevronDown size={14} className={isDarkMode ? 'text-gray-500' : 'text-slate-400'} />
+                    <div className="relative" ref={dropdownRef}>
+                        <div
+                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                            className={`flex items-center space-x-3 px-4 py-2 rounded-xl border cursor-pointer transition-all shadow-lg ${isDarkMode
+                                ? 'bg-[#181824] border-white/[0.06] hover:bg-[#20202e] hover:border-white/10'
+                                : 'bg-white border-slate-200 hover:bg-slate-50 hover:shadow-md'
+                                }`}
+                        >
+                            <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>{selectedLabel}</span>
+                            <ChevronDown size={14} className={`transition-transform duration-200 ${isDarkMode ? 'text-gray-500' : 'text-slate-400'} ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                        </div>
+
+                        {/* Dropdown Menu */}
+                        {isDropdownOpen && (
+                            <div className={`absolute top-full right-0 mt-2 rounded-xl border shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 min-w-[160px] ${isDarkMode
+                                ? 'bg-[#1e1e2d] border-white/[0.08]'
+                                : 'bg-white border-slate-200'
+                                }`}>
+                                {timeRangeOptions.map(option => (
+                                    <div
+                                        key={option.value}
+                                        onClick={() => {
+                                            onRangeChange(option.value);
+                                            setIsDropdownOpen(false);
+                                        }}
+                                        className={`px-4 py-2.5 flex items-center justify-between text-xs font-medium cursor-pointer transition-colors ${isDarkMode
+                                            ? 'text-gray-300 hover:bg-purple-500/10 hover:text-purple-300'
+                                            : 'text-slate-600 hover:bg-purple-50 hover:text-purple-600'
+                                            } ${selectedRange === option.value ? (isDarkMode ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-600') : ''}`}
+                                    >
+                                        {option.label}
+                                        {selectedRange === option.value && <Check size={12} />}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            {hasData && data.length > 0 ? (
+            {hasData && filteredData.length > 0 ? (
                 // Chart Content
                 <>
                     <div className="flex-1 w-full min-h-[300px] relative z-10 animate-in fade-in duration-700">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart
-                                data={data}
+                                data={filteredData}
                                 margin={{
                                     top: 20,
                                     right: 15,

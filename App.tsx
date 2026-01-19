@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import EnterIncomeCard from './components/EnterIncomeCard';
 import BreakdownCard from './components/BreakdownCard';
-import AnalyticsCard from './components/AnalyticsCard';
+import AnalyticsCard, { TimeRange } from './components/AnalyticsCard';
 import Auth from './components/Auth';
 import AddCompanyModal from './components/AddCompanyModal';
 import CompaniesPage from './components/CompaniesPage';
@@ -49,9 +49,13 @@ const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<PageType>('home');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
 
+  // Time Range State (shared between Analytics and Enter Income)
+  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('6m');
+  const [isManualEntryMode, setIsManualEntryMode] = useState(false);
+
   // Income Entry State
-  const [grossIncome, setGrossIncome] = useState<number>(20729.01);
-  const [breakdown, setBreakdown] = useState<BreakdownData>(calculateBreakdown(20729.01));
+  const [grossIncome, setGrossIncome] = useState<number>(0);
+  const [breakdown, setBreakdown] = useState<BreakdownData>(calculateBreakdown(0));
 
   // New Fields State
   const [periodStart, setPeriodStart] = useState<string>('');
@@ -144,13 +148,104 @@ const App: React.FC = () => {
     }
   };
 
-  // Update breakdown when gross income changes (auto-calculation)
+  // Filter income entries by selected time range
+  const filteredEntriesForTimeRange = useMemo(() => {
+    if (selectedTimeRange === 'all' || incomeEntries.length === 0) {
+      return incomeEntries;
+    }
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    let cutoffDate: Date;
+
+    switch (selectedTimeRange) {
+      case '3m':
+        cutoffDate = new Date(currentYear, currentMonth - 2, 1);
+        break;
+      case '6m':
+        cutoffDate = new Date(currentYear, currentMonth - 5, 1);
+        break;
+      case '12m':
+        cutoffDate = new Date(currentYear, currentMonth - 11, 1);
+        break;
+      case 'ytd':
+        cutoffDate = new Date(currentYear, 0, 1);
+        break;
+      default:
+        cutoffDate = new Date(currentYear, currentMonth - 5, 1);
+    }
+
+    return incomeEntries.filter(entry => {
+      const entryDate = new Date(entry.received_date);
+      return entryDate >= cutoffDate;
+    });
+  }, [incomeEntries, selectedTimeRange]);
+
+  // Calculate aggregated breakdown from filtered entries
+  const aggregatedBreakdown = useMemo((): BreakdownData => {
+    if (filteredEntriesForTimeRange.length === 0) {
+      return calculateBreakdown(0);
+    }
+
+    const totals = filteredEntriesForTimeRange.reduce((acc, entry) => {
+      return {
+        grossIncome: acc.grossIncome + (entry.gross_amount || 0),
+        netIncome: acc.netIncome + (entry.net_amount || 0),
+        cpp: acc.cpp + (entry.cpp || 0),
+        ei: acc.ei + (entry.ei || 0),
+        federalTax: acc.federalTax + (entry.federal_tax || 0),
+        provincialTax: acc.provincialTax + (entry.provincial_tax || 0),
+        vacationPay: acc.vacationPay + (entry.vacation_pay || 0),
+      };
+    }, {
+      grossIncome: 0,
+      netIncome: 0,
+      cpp: 0,
+      ei: 0,
+      federalTax: 0,
+      provincialTax: 0,
+      vacationPay: 0,
+    });
+
+    return {
+      grossIncome: Number(totals.grossIncome.toFixed(2)),
+      netIncome: Number(totals.netIncome.toFixed(2)),
+      cpp: Number(totals.cpp.toFixed(2)),
+      ei: Number(totals.ei.toFixed(2)),
+      federalTax: Number(totals.federalTax.toFixed(2)),
+      provincialTax: Number(totals.provincialTax.toFixed(2)),
+      vacationPay: Number(totals.vacationPay.toFixed(2)),
+    };
+  }, [filteredEntriesForTimeRange]);
+
+  // Auto-populate breakdown when time range changes or entries load (if not in manual mode)
   useEffect(() => {
-    setBreakdown(calculateBreakdown(grossIncome));
-  }, [grossIncome]);
+    if (!isManualEntryMode && incomeEntries.length > 0) {
+      setGrossIncome(aggregatedBreakdown.grossIncome);
+      setBreakdown(aggregatedBreakdown);
+    }
+  }, [aggregatedBreakdown, isManualEntryMode, incomeEntries.length]);
+
+  // Update breakdown when gross income changes (only in manual entry mode)
+  useEffect(() => {
+    if (isManualEntryMode) {
+      setBreakdown(calculateBreakdown(grossIncome));
+    }
+  }, [grossIncome, isManualEntryMode]);
+
+  // Handle gross income change - switch to manual mode if user edits
+  const handleGrossIncomeChange = useCallback((value: number) => {
+    if (value !== aggregatedBreakdown.grossIncome) {
+      setIsManualEntryMode(true);
+    }
+    setGrossIncome(value);
+  }, [aggregatedBreakdown.grossIncome]);
 
   // Handle manual edits to specific breakdown fields
   const handleBreakdownChange = (field: keyof BreakdownData, value: number) => {
+    setIsManualEntryMode(true);
     setBreakdown(prev => {
       const updated = { ...prev, [field]: value };
       if (field !== 'netIncome' && field !== 'grossIncome') {
@@ -162,12 +257,12 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
-    setGrossIncome(0);
-    setBreakdown(calculateBreakdown(0));
+    setIsManualEntryMode(false);
     setPeriodStart('');
     setPeriodEnd('');
     setPayDate('');
     setSelectedCompanyIdForEntry(null);
+    // Breakdown will auto-populate from aggregated data
   };
 
   const handleAddIncome = async () => {
@@ -294,7 +389,7 @@ const App: React.FC = () => {
                   <div className="lg:col-span-3">
                     <EnterIncomeCard
                       grossIncome={grossIncome}
-                      setGrossIncome={setGrossIncome}
+                      setGrossIncome={handleGrossIncomeChange}
                       breakdown={breakdown}
                       onBreakdownChange={handleBreakdownChange}
                       onReset={handleReset}
@@ -322,7 +417,13 @@ const App: React.FC = () => {
 
                   {/* Right Panel: Analytics Chart */}
                   <div className="lg:col-span-5">
-                    <AnalyticsCard hasData={chartData.length > 0} isDarkMode={isDarkMode} data={chartData} />
+                    <AnalyticsCard
+                      hasData={chartData.length > 0}
+                      isDarkMode={isDarkMode}
+                      data={chartData}
+                      selectedRange={selectedTimeRange}
+                      onRangeChange={setSelectedTimeRange}
+                    />
                   </div>
 
                 </div>
