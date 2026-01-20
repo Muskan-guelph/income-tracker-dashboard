@@ -9,6 +9,7 @@ import AddCompanyModal from './components/AddCompanyModal';
 import CompaniesPage from './components/CompaniesPage';
 import CompanyDetailsPage from './components/CompanyDetailsPage';
 import TransactionsPage from './components/TransactionsPage';
+import ReportsPage from './components/ReportsPage';
 import { supabase } from './lib/supabaseClient';
 import { BreakdownData, ChartDataPoint, IncomeEntry, Company, PageType } from './types';
 
@@ -364,7 +365,7 @@ const App: React.FC = () => {
 
           {/* Main Content */}
           <div className="flex-1 flex flex-col h-full relative z-10 overflow-y-auto">
-            <Header isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />
+            <Header isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} currentPage={currentPage} onNavigate={setCurrentPage} />
 
             {/* Conditional Page Rendering */}
             {currentPage === 'home' && (
@@ -460,6 +461,14 @@ const App: React.FC = () => {
                 companies={companies}
                 onRefresh={fetchIncomeData}
                 session={session}
+              />
+            )}
+
+            {currentPage === 'reports' && (
+              <ReportsPage
+                isDarkMode={isDarkMode}
+                incomeEntries={incomeEntries}
+                companies={companies}
               />
             )}
           </div>

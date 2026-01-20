@@ -15,7 +15,7 @@ export interface ChartDataPoint {
 
 export type PaySchedule = 'weekly' | 'bi_weekly' | 'semi_monthly' | 'monthly';
 
-export type PageType = 'home' | 'companies' | 'company-details' | 'transactions';
+export type PageType = 'home' | 'companies' | 'company-details' | 'transactions' | 'reports';
 
 export interface IncomeAttachment {
   id: string;

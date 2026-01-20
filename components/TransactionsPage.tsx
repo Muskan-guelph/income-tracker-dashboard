@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Receipt, Plus, Search, ChevronDown, ChevronRight, Edit2, Trash2,
     Eye, Paperclip, Calendar, Building2, X, Upload, FileText,
@@ -37,6 +37,39 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
 
     // Track attachment counts per entry
     const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
+
+    // Fetch attachment counts for all income entries
+    useEffect(() => {
+        const fetchAttachmentCounts = async () => {
+            if (incomeEntries.length === 0) return;
+
+            const entryIds = incomeEntries.map(e => e.id).filter(Boolean) as string[];
+            if (entryIds.length === 0) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('income_attachments')
+                    .select('entry_id')
+                    .in('entry_id', entryIds);
+
+                if (error) {
+                    console.error('Error fetching attachment counts:', error);
+                    return;
+                }
+
+                // Count attachments per entry
+                const counts: Record<string, number> = {};
+                data?.forEach(row => {
+                    counts[row.entry_id] = (counts[row.entry_id] || 0) + 1;
+                });
+                setAttachmentCounts(counts);
+            } catch (err) {
+                console.error('Error fetching attachment counts:', err);
+            }
+        };
+
+        fetchAttachmentCounts();
+    }, [incomeEntries]);
 
     const [selectedTransaction, setSelectedTransaction] = useState<IncomeEntry | null>(null);
     const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false);
@@ -129,15 +162,21 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
         return companies.find(c => c.id === companyId)?.name || 'Unknown';
     };
 
+    // Parse date string as local time (not UTC) to avoid timezone offset issues
+    const parseLocalDate = (dateStr: string): Date => {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    };
+
     const formatDate = (dateStr?: string) => {
         if (!dateStr) return '—';
-        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        return parseLocalDate(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     };
 
     const formatPeriod = (start?: string, end?: string) => {
         if (!start || !end) return '—';
-        const startDate = new Date(start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const endDate = new Date(end).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const startDate = parseLocalDate(start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const endDate = parseLocalDate(end).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return `${startDate} → ${endDate}`;
     };
 
@@ -394,9 +433,9 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
                                             </span>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className={`flex items-center gap-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-400'}`}>
+                                            <div className={`flex items-center gap-1 text-xs ${attachmentCounts[transaction.id || ''] > 0 ? 'text-emerald-400' : isDarkMode ? 'text-gray-500' : 'text-slate-400'}`}>
                                                 <Paperclip size={14} />
-                                                <span>0</span>
+                                                <span>{attachmentCounts[transaction.id || ''] || 0}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">

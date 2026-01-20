@@ -41,8 +41,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, currentPage, onNavigate }
           isDarkMode={isDarkMode}
           onClick={() => onNavigate('transactions')}
         />
+        <NavItem
+          icon={<FileText size={20} />}
+          active={currentPage === 'reports'}
+          isDarkMode={isDarkMode}
+          onClick={() => onNavigate('reports')}
+        />
         <NavItem icon={<Mail size={20} />} active={false} isDarkMode={isDarkMode} onClick={() => { }} />
-        <NavItem icon={<Folder size={20} />} active={false} isDarkMode={isDarkMode} onClick={() => { }} />
       </nav>
 
       {/* Bottom Settings */}
