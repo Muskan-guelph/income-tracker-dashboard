@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
     Receipt, Plus, Search, ChevronDown, ChevronRight, Edit2, Trash2,
     Eye, Paperclip, Calendar, Building2, X, Upload, FileText,
-    ArrowUpDown, Filter, Download, DollarSign
+    ArrowUpDown, Filter, Download, DollarSign, Copy
 } from 'lucide-react';
 import { Company, IncomeEntry, IncomeAttachment } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -203,6 +203,24 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
     const handleEdit = (transaction: IncomeEntry) => {
         setEditingTransaction(transaction);
         setIsModalOpen(true);
+    };
+
+    const handleDuplicate = async (transaction: IncomeEntry) => {
+        try {
+            const { id, ...rest } = transaction;
+            const data = {
+                ...rest,
+                user_id: session.user.id,
+                source: 'manual',
+            };
+            const { error } = await supabase
+                .from('income_entries')
+                .insert([data]);
+            if (error) throw error;
+            onRefresh();
+        } catch (err) {
+            console.error('Error duplicating transaction:', err);
+        }
     };
 
     return (
@@ -448,6 +466,16 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
                                                         }`}
                                                 >
                                                     <Edit2 size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDuplicate(transaction)}
+                                                    title="Duplicate transaction"
+                                                    className={`p-2 rounded-lg transition-colors ${isDarkMode
+                                                        ? 'hover:bg-blue-500/10 text-gray-400 hover:text-blue-400'
+                                                        : 'hover:bg-blue-50 text-slate-400 hover:text-blue-500'
+                                                        }`}
+                                                >
+                                                    <Copy size={14} />
                                                 </button>
                                                 <button
                                                     onClick={() => setDeleteConfirmId(transaction.id || null)}
